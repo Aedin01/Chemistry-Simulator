@@ -1,0 +1,205 @@
+//ParticleRender.compute
+//Aiden Furey, 15/7/2024
+//GPU rendering system to compute and render all particle physics
+
+#pragma kernel CSMain
+
+//Structure that represents a single particle, data structure parsed from "ParticleSimulation.cs"
+struct Particle
+{
+    float3 position;
+    float3 velocity;
+    float3 acceleration;
+    float mass;
+    //An enumeration that acts as a reference to the particle's chemical type
+    int type;
+};
+
+RWStructuredBuffer<Particle> particles;
+
+//Represents the temperature of the system, parsed from "ParticleSimulation.cs"
+float temperature;
+float maxvelocity;
+float2 cylinderCenter;
+float2 previousCylinderCenter;
+
+//GPU thread allocation for computations
+[numthreads(16,1,1)]
+/*The main function of the compute shader. Given an array of particles, parsed from "ParticleSimulation.cs", 
+iterates through the array and efficiently calulates physical changes and returns a modified particle array.*/
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    /*Instantiates a particle as a reference to the current element in the parsed particle array, all in
+    thread group x.*/
+    Particle particle = particles[id.x];
+
+    //Maximum container boundary
+    float boundaryMax = 150;
+    //Minimum container boundary
+    float groundLevel = -100;
+    //Container radius
+    float cylinderRadius = 100.0;
+    //The factor that determines energy loss during interactions
+    float collisionDamp = 1.1;
+    //The radius of each particle in the system
+    float radius = 25;
+    //The factor that determines repulsion between particles
+    float repulsionStrength = 0.1;
+    //The maximum velocity all particles can have, to ensure a smooth and bug free user experience
+    float globalMaxVeloity = 50;
+    //The maximum velocity the current particle can have based on its melting and boiling points
+    float maxVelocity =0;
+    //The melting point of the current particle
+    float meltingPoint =0;
+    //The boiling point of the current particle
+    float boilingPoint =0;
+
+    particle.position.x += (cylinderCenter.x - previousCylinderCenter.x);
+    particle.position.z += (cylinderCenter.y - previousCylinderCenter.y);
+
+    /*Calculates the distance between the particle and the container's center, across the 2-dimensional
+    XZ plane, to monitor horizontal collisions*/
+    float2 toParticleXZ = float2(particle.position.x, particle.position.z) - cylinderCenter;
+    //Calculates the magnitude of the difference vector
+    float distanceToCenterXZ = length(toParticleXZ);
+
+    //Checks if the particle is outside of the container's horizontal radius
+    if (distanceToCenterXZ > cylinderRadius)
+    {
+        //Normalizes the vector from cylinder center to particle on the XZ plane
+        float2 directionXZ = normalize(toParticleXZ);
+
+        //Resets the particle's position such that it is inside the container
+        particle.position.x = cylinderCenter.x + directionXZ.x * cylinderRadius;
+        particle.position.z = cylinderCenter.y + directionXZ.y * cylinderRadius;
+
+        float2 velocityXZ = float2(particle.velocity.x, particle.velocity.z);
+        /*Reflect the particle's velocity on the XZ plane, based on the calculated normal and the 
+        dot product of the XZ plane velocity and normal*/
+        velocityXZ -= 2.0 * dot(velocityXZ, directionXZ) * directionXZ;
+
+        //Update the particle's velocity in the X and Z axis
+        particle.velocity.x = velocityXZ.x;
+        particle.velocity.z = velocityXZ.y;
+    }
+    //Check if the particle is below the set ground level
+    if (particle.position.y < groundLevel)
+    {
+        //Resets the particle's position such that it is inside the container
+        particle.position.y = groundLevel;
+        //Reflects the particle's velocity, based on the collision damping factor
+        particle.velocity.y *= -1 / collisionDamp;
+
+        /*Increase the velocity of the particle based on the temperature, to simulate heat transfer in 
+        a system being heated from the bottom, like a beaker on a hot plate*/
+        particle.velocity *= temperature;
+    }
+
+    //Check if the particle is above the maximum height level
+    else if (particle.position.y > boundaryMax)
+    {
+        //Resets the particle's position such that it is inside the container
+        particle.position.y = boundaryMax;
+        //Reflects the particle's velocity, based on the collision damping factor
+        particle.velocity.y *= -1 / collisionDamp;
+    }
+    //Modifies the particle's velocity based on its acceleration
+    particle.velocity += particle.acceleration;
+    //Modifies the particle's position based on its velocity
+    particle.position += particle.velocity;
+    //Iterates over every other particle in the system, to compute interactions
+    for (uint i = 0; i < particles.Length; i++)
+    {
+        //Excludes a comparison between the particle and itself
+        if (i != id.x)
+        {
+            //Instantiates a particle as a reference to the current iterated element in the parsed particle array
+            Particle other = particles[i];
+            //Calculates a vector difference between the compared particles
+            float3 diff = particle.position - other.position;
+            //Calculates the magnitude of the vector
+            float dist = length(diff);
+
+            //Runs only if a collision (overlap) occurs between the two particles
+            if (dist < radius)
+            {
+                //Calculates the normal vector of the difference vector
+                float3 normal = normalize(diff);
+                //Calculates the magnitude of the overlap between the particles
+                float overlap = radius - dist;
+
+                /*Calculates a repulsion force vector in the direction of the calculated normal, proportional 
+                to the overlap, and scaled by the repulsion strength variable*/
+                float3 repulsion = normal * overlap * repulsionStrength;
+
+                //Calculates the ratio of the both the paricle masses
+                float particleMassRatio = particle.mass / (particle.mass + other.mass);
+                float otherMassRatio = other.mass / (particle.mass + other.mass);
+
+                /*Modifies the position of the particles based on the calulated repulsion vector
+                and the ratios of the particle masses*/
+                particle.position += repulsion * otherMassRatio;
+                other.position -= repulsion * particleMassRatio;
+
+                //Calculates the relative velocity of the two particles
+                float3 relativeVelocity = particle.velocity - other.velocity;
+                //Calculates the impulse of the interaction based on the afforementioned properties
+                float3 impulse = (2.0f * dot(relativeVelocity, normal) / (particle.mass + other.mass)) * normal;
+
+                //Applies the change in momentum to both particles, in appropriate ratios.
+                particle.velocity -= impulse * other.mass / particle.mass;
+                other.velocity += impulse * particle.mass / other.mass;
+
+                /*Apply collision dampening to the velocities to ensure the system's energy doesn't build
+                too much*/
+                particle.velocity /= collisionDamp;
+                other.velocity /= collisionDamp;
+            }
+
+            //Applies the Lennard-Jones potential for attraction that runs if the particles are apart.
+            if (dist > 0 && dist < radius)
+            {
+                //Epsilon represents the depth of the potential well (the strength of attraction)
+                float epsilon = 2;
+                //Sigma represents the distance at which the potential is 0
+                float sigma = 0.00001;
+                //Calculates the magnitude of the force based on the Lennard-Jones potential for attraction formula
+                float ljForceMagnitude = (24 * epsilon * (2 * pow(sigma / dist, 13) - pow(sigma / dist, 7)) / dist);
+                /*Calculates the force vector, based on the calculated magnitude and the normal of the
+                vector between the two particles*/
+                float3 ljForce = ljForceMagnitude * normalize(diff);
+
+                //Applies the calculated force to each particle, relative to their mass
+                particle.velocity += ljForce / particle.mass;
+                other.velocity -= ljForce / other.mass;
+
+                /*Update the array to be parsed with the other particle, as for that particleall changes
+                have been made*/
+                particles[i] = other;
+            }
+        }
+    }
+
+
+    /*A final check to ensure the total energy in the system doesn't increase too much, and provide
+    a smooth and more readable user experience*/
+    /*if(temperature < melting)
+    {
+        maxVelocity = 0;
+    }
+    else if(temperature > melting && temperature < boiling)
+    {
+        maxVelocity = melting
+    }
+    else if(temperature > boiling)
+    {
+        maxVelocity = globalMaxVeloity;
+    }
+    if(length(particle.velocity) > maxVelocity)
+    {
+        //Ensures the velocity doesn't go over the velocity cap.
+        particle.velocity *=  maxvelocity/length(particle.velocity);
+    }*/
+    //Write back the updated particle
+    particles[id.x] = particle;
+}

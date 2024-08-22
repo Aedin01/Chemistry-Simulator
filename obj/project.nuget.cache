@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "dgSpecHash": "LOJ7+5uKUEpA2m5iRVbBawYvru5KuaSxYxgW+4nsratowmwoZEFEgY/wxPKYmEYS9mHURU7eaSsME2KtYPKCMg==",
+  "success": false,
+  "projectFilePath": "C:\\Users\\Aiden\\Desktop\\Projects\\Unity\\Chemistry Simulator\\Assembly-CSharp.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Aiden\\.nuget\\packages\\microsoft.entityframeworkcore\\8.0.8\\microsoft.entityframeworkcore.8.0.8.nupkg.sha512",
+    "C:\\Users\\Aiden\\.nuget\\packages\\microsoft.entityframeworkcore.sqlite\\8.0.8\\microsoft.entityframeworkcore.sqlite.8.0.8.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1202",
+      "level": "Error",
+      "message": "Package Microsoft.EntityFrameworkCore 8.0.8 is not compatible with net471 (.NETFramework,Version=v4.7.1). Package Microsoft.EntityFrameworkCore 8.0.8 supports: net8.0 (.NETCoreApp,Version=v8.0)",
+      "libraryId": "Microsoft.EntityFrameworkCore",
+      "targetGraphs": [
+        ".NETFramework,Version=v4.7.1"
+      ]
+    },
+    {
+      "code": "NU1202",
+      "level": "Error",
+      "message": "Package Microsoft.EntityFrameworkCore.Sqlite 8.0.8 is not compatible with net471 (.NETFramework,Version=v4.7.1). Package Microsoft.EntityFrameworkCore.Sqlite 8.0.8 supports: net8.0 (.NETCoreApp,Version=v8.0)",
+      "libraryId": "Microsoft.EntityFrameworkCore.Sqlite",
+      "targetGraphs": [
+        ".NETFramework,Version=v4.7.1"
+      ]
+    }
+  ]
+}
